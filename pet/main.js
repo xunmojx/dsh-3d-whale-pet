@@ -1616,7 +1616,6 @@ ipcMain.on('pet:menu-action', (_e, a) => {
     case 'balance': queryBalance(); break
     case 'help': openHelpPanel(); break
     case 'lines': openLinesPanel(); break
-    case 'pose': openPosePanel(); break
     case 'update': {
       // 先把 DSH 窗口叫到前面（插件页就在里面）。直接开浏览器不行：
       // DSH 的 web 要令牌，令牌只存在桌面端进程里，浏览器打开只会 401。
