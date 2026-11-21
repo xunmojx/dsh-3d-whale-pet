@@ -1023,6 +1023,28 @@
             // ==================== 互动加速：悬停 / 单击 → 用力游 ====================
             let hoverActive = false, clickBoost = 0, danceLevel = 0; // danceLevel: 音乐频谱驱动（温和）
             let beatPulse = 0, spinRemaining = 0, spinAngle = 0; // 节拍脉冲 / 转圈角度
+            // 初始姿态唯一的调整：头仍朝左，整体向观众这边偏 60°（四分之三侧面）。
+            // 它是「静止时」的朝向：一旦它转头去追鼠标，这个偏角会自动淡出，
+            // 保证真正跟随的时候头是正对光标的，不会一直差 60°。
+            // 默认姿态（用户调好确认的）：左右 64°、上下 -16°、侧倾 -22°
+            let baseYaw = 64 * Math.PI / 180;
+            let basePitch = -16 * Math.PI / 180;   // 上下（弧度），由「调整初始角度」面板设置
+            let baseRoll = -22 * Math.PI / 180;    // 侧倾（弧度），同上
+            window.__petApplyPose = function (p2) {
+                if (!p2) return;
+                baseYaw = (Number(p2.yaw) || 0) * Math.PI / 180;
+                basePitch = (Number(p2.pitch) || 0) * Math.PI / 180;
+                baseRoll = (Number(p2.roll) || 0) * Math.PI / 180;
+            };
+            // 开机先摆这个姿势；等鼠标真的动过之后，再用 0.8 秒过渡到「正常朝鼠标」。
+            // 触发条件用「光标相对第一帧移动超过 24px」，比固定计时更贴合手感：
+            // 你不碰鼠标，它就一直是这个姿势。
+            // 临时开关：true = 完全不跟鼠标，只保持固定姿势（对角度/截图时用）。现在恢复正常。
+            window.__petTrackOff = false;
+            window.__petPoseHold = true;        // true = 还保持开场姿势
+            window.__petPoseFadeStart = 0;      // 开始过渡的时刻
+            window.__petPoseFirstRel = null;    // 第一帧的光标方位
+            window.__petSetBaseYaw = function (deg) { baseYaw = (Number(deg) || 0) * Math.PI / 180; };
             // 想到结果时的「开心一下」：慢慢上浮再落回（像在水里），同时扇鳍摆尾眯眼
             let celebrateAt = 0, celebrateUntil = 0;
             // 被点一下：短促地小跳一下（0.5 秒），幅度明显但不像高兴时那么大幅
@@ -1032,6 +1054,7 @@
                 celebrateUntil = celebrateAt + 2600;
             };
             let danceFreq = 0.7; // 用户设定的跳舞强度 0-1（0=关闭，1=最强）
+            window.__petDanceFreq = danceFreq;   // 别的 <script> 块要用，挂到 window
             // ---- 点头（代替原来那种每帧都在抖的小幅摆动）----
             // 一次点头 = 俯仰角度走一遍 0 → 1 → 0，时长 NOD_SEC。
             // 强度只控制「连点几下、中间停几拍」，不控制幅度——这样看着才是有节奏的，
@@ -1270,14 +1293,20 @@
 
 
                 // —— 身体：roll(z) + yaw(y) + pitch(x)，yaw 叠加转圈 + 音乐小幅偏移 ——
+                // 固定观察角度系数（以前是「鼠标一动就淡出」，几乎看不到效果，现在恒为 1）。
+                // 必须在这里声明：下面的 petGroup.rotation.z 会用到它，声明晚了会 TDZ 报错。
+                const poseK = 1;
                 const roll = moodState.bodySway * aMul * sleepF;
-                model.rotation.z = roll * (Math.sin(t * w) + 0.4 * Math.sin(t * w * 2 + 1.3)) + SWIM.bank;
+                const rzBody = roll * (Math.sin(t * w) + 0.4 * Math.sin(t * w * 2 + 1.3)) + SWIM.bank;
                 const yaw = moodState.bodyYaw * aMul * sleepF;
                 // 摆正时的 3D 感：把「头还差多少角度没转到位」耦合一点到绕竖轴的转动上。
                 // 平着转过去是 2D 的，加上这一下就像绕着自己的竖轴拧了一下再摆正 ——
                 // 误差归零它自然回 0，不需要额外的状态机。
                 const swingYaw = Math.max(-0.28, Math.min(0.28, (FACE.tiltTarget - FACE.tilt) * 0.22));
-                model.rotation.y = yaw * (Math.sin(t * w + 0.5) + 0.4 * Math.sin(t * w * 2 + 2.4)) + spinAngle + idleYawSpin + FACE.yaw + turnYaw + swingYaw;
+                // 静止侧身时才带这个偏角；一旦转头/跟随光标（tilt 有值），偏角自动淡出，
+                // 保证「朝光标看」时不会有 30° 的系统性偏差。
+                // 开场亮相：鼠标没动之前一直保持初始偏角，动了才用 0.8 秒淡出
+                const ryBody = yaw * (Math.sin(t * w + 0.5) + 0.4 * Math.sin(t * w * 2 + 2.4)) + spinAngle + idleYawSpin + FACE.yaw * (1 - poseK) + turnYaw + swingYaw + baseYaw * poseK;
                 const pitch = moodState.bodyPitch * aMul * sleepF;
                 // 点头曲线：一次 0 -> 1 -> 0，只在有节拍时才走
                 if (nodPhase > 0) {
@@ -1292,9 +1321,17 @@
                 const nodAmp = nodCurve * slowFactor * (0.85 + 0.15 * danceLevel) * (isSleeping ? 0.3 : 1);
                 // 上下点头靠位移：相机是从右前方斜看的，只转 X 轴看着像左右摇头
                 const nodTilt = nodAmp * NOD_AMP;
+                // 基准姿态里「头抬起一点」：只转头部（走 shader 的点头通道），
+                // 身体、尾巴、鳍都不动，所以看起来是抬头而不是整只仰起来。
+
                 if (bodyUniforms && bodyUniforms.uNod) bodyUniforms.uNod.value = nodTilt;
                 headGroup.rotation.z = nodTilt;   // 眼斑/眼球/背鳍跟着头一起转
-                model.rotation.x = pitch * (Math.sin(t * w + 0.8) + 0.4 * Math.sin(t * w * 2 + 0.3)) + SWIM.pitch + FACE.pitch + idleSpin;
+                const rxBody = pitch * (Math.sin(t * w + 0.8) + 0.4 * Math.sin(t * w * 2 + 0.3)) + SWIM.pitch + FACE.pitch * (1 - poseK) + idleSpin;
+                // 先把朝向定好（俯仰/偏转），再单独绕「嘴→尾」这根局部轴滚：
+                // 用 rotateX 作用在已旋转的对象上，轴就是模型自己的长轴，不会和偏转混在一起。
+                // 上下俯仰（basePitch）是画面内转动，放在 rzBody 里。
+                model.rotation.set(rxBody, ryBody, rzBody + basePitch);
+                if (baseRoll) model.rotateX(baseRoll);
 
                 // —— 想到结果时的上浮（1.5 秒上去再回来，慢一点才像在水里） ——
                 const nowMs = performance.now();
@@ -1321,7 +1358,7 @@
                 }
                 // 朝向鼠标的俯仰放在父分组上：镜像（scale.x 为负）之后再做旋转，
                 // 视觉方向才不会被镜像翻反。绕的原点就是虎鲸自己的中心。
-                petGroup.rotation.z = FACE.tilt;
+                petGroup.rotation.z = FACE.tilt * (1 - poseK);   // 亮相期间先别被光标带歪
 
                 // —— 尾巴：整条一起上下弯 + 尾巴尖左右摆 + 节拍甩尾 ——
                 const ty = moodState.tailYaw * aMul * sleepF;
@@ -1403,6 +1440,7 @@
             window.__petSetDance = function (lvl) { danceLevel = Math.max(0, Math.min(1, Number(lvl) || 0)); };
             window.__petSetDanceFreq = function (v) {
                 danceFreq = Math.max(0, Math.min(1, Number(v) || 0));
+                window.__petDanceFreq = danceFreq;
                 nodPhase = 0;   // 换档时把正在点的这一下收掉
                 try { localStorage.setItem('pet_dance_freq', danceFreq); } catch (e) {}
             };
@@ -1859,10 +1897,10 @@
                 actionBubbles.classList.add('open');
                 keepActionBubbles();
             }
-            // 面板和派活输入框共用一个计时器：谁在活跃就重新计时，到点一起收。
+            // 面板不再定时自动收：跟它互动超过 8 秒是常事，自动消失只会烦人。
+            // 收起方式：点小虎鲸以外的地方、右键开菜单、或者再点一次它。
             function keepActionBubbles() {
-                if (bubblesTimer) clearTimeout(bubblesTimer);
-                bubblesTimer = setTimeout(hideActionBubbles, 8000);
+                if (bubblesTimer) { clearTimeout(bubblesTimer); bubblesTimer = null; }
             }
             window.__petKeepPanel = keepActionBubbles;
             function hideActionBubbles() {
@@ -2009,9 +2047,10 @@
                         'setIcon', 'holdStill', 'setPanelOpen',
                         'dropFish', 'exitGame', 'onFishSync', 'onFishEaten', 'onGameMode',
                         'setSpinning', 'setSleeping', 'onCursor', 'reportHit',
+                        'savePose', 'poseWant',
                     ],
                     petBridge: [
-                        'onMood', 'onThinking', 'onLines', 'askLines', 'onConnection', 'onAbortSpin', 'onSwim',
+                        'onMood', 'onThinking', 'onLines', 'askLines', 'onPose', 'onPoseEditor', 'onConnection', 'onAbortSpin', 'onSwim',
                         'onLog', 'onReply', 'onBalance', 'queryBalance',
                         'onStream', 'prompt',
                         'onSetSkin', 'onSetCustomSkin', 'onSetSize', 'onSetDanceFreq',
@@ -2062,6 +2101,62 @@
                 } catch { /* 音频不可用则静默 */ }
             }
             // 台词：主进程把「保留的内置 + 自定义」推过来
+            // ---- 初始角度调整：三根滑杆，实时改、自动存 ----
+            (function () {
+                const box = document.createElement('div');
+                box.style.cssText = 'position:fixed;left:50%;top:8px;transform:translateX(-50%);z-index:60;display:none;'
+                    + 'background:rgba(20,26,44,.92);color:#dfe6ff;border-radius:12px;padding:10px 12px;font-size:12px;'
+                    + 'box-shadow:0 6px 20px rgba(0,0,0,.35);width:240px;font-family:system-ui,sans-serif';
+                box.innerHTML = `
+                  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                    <b>调整初始角度</b><button id="pose-close" style="border:0;background:none;color:#9db0ff;cursor:pointer;font-size:13px">✕</button>
+                  </div>
+                  <label style="display:block;margin:4px 0">左右 <span id="v-yaw">0</span>°<input id="s-yaw" type="range" min="-180" max="180" step="1" style="width:100%"></label>
+                  <label style="display:block;margin:4px 0">上下 <span id="v-pitch">0</span>°<input id="s-pitch" type="range" min="-40" max="40" step="1" style="width:100%"></label>
+                  <label style="display:block;margin:4px 0">侧倾 <span id="v-roll">0</span>°<input id="s-roll" type="range" min="-40" max="40" step="1" style="width:100%"></label>
+                  <div style="opacity:.6;font-size:11px;margin-top:4px">调完直接关掉即可，下次启动还是这个角度</div>`;
+                document.body.appendChild(box);
+
+                const S = (id) => box.querySelector('#s-' + id);
+                const V = (id) => box.querySelector('#v-' + id);
+                const pose = { yaw: 60, pitch: 0, roll: 0 };
+                // 这两个接口挂在 petBridge 上（不是 petWindow），所以两边都试一下
+                function savePose() {
+                    const api = (window.petWindow && window.petWindow.savePose) ? window.petWindow
+                        : (window.petBridge && window.petBridge.savePose ? window.petBridge : null);
+                    if (api) api.savePose(pose);
+                }
+                function apply() {
+                    if (window.__petApplyPose) window.__petApplyPose(pose);
+                    savePose();
+                }
+                function sync() {
+                    V('yaw').textContent = pose.yaw; V('pitch').textContent = pose.pitch; V('roll').textContent = pose.roll;
+                }
+                for (const k of ['yaw', 'pitch', 'roll']) {
+                    S(k).addEventListener('input', () => {
+                        pose[k] = Number(S(k).value) || 0;
+                        sync(); apply();
+                    });
+                }
+                box.querySelector('#pose-close').addEventListener('click', () => { box.style.display = 'none'; });
+                window.__petPoseEditor = function (on) {
+                    box.style.display = on ? 'block' : 'none';
+                    if (on) {
+                        if (window.petWindow && window.petWindow.poseWant) window.petWindow.poseWant();
+                        else if (window.petBridge && window.petBridge.poseWant) window.petBridge.poseWant();
+                    }
+                };
+                window.__petPoseSetValues = function (p) {
+                    if (!p) return;
+                    pose.yaw = Number(p.yaw) || 0; pose.pitch = Number(p.pitch) || 0; pose.roll = Number(p.roll) || 0;
+                    S('yaw').value = pose.yaw; S('pitch').value = pose.pitch; S('roll').value = pose.roll;
+                    sync(); apply();
+                };
+            })();
+            if (bridge.onPose) bridge.onPose(function (p) { if (window.__petPoseSetValues) window.__petPoseSetValues(p); });
+            if (bridge.onPoseEditor) bridge.onPoseEditor(function (on) { if (window.__petPoseEditor) window.__petPoseEditor(on); });
+
             if (bridge.onLines) bridge.onLines(function (d) { window.__petLines = d || null; });
             if (bridge.askLines) bridge.askLines();   // 主动要一次，防止错过启动时那一次推送
             bridge.onMood((mood) => {
@@ -2305,7 +2400,19 @@
                     if (!v.roam) window.__petCursorActiveAt = performance.now();
                     const f = window.__petFace;
                     if (!f || typeof v.cx !== 'number' || typeof v.cy !== 'number') return;
+                    if (window.__petTrackOff) return;   // 临时关闭：姿态固定，不追光标
                     const dx = v.cx, dy = v.cy;
+
+                    // 开场姿势：记住第一帧光标方位；之后光标移动超过 24px 才开始切到跟随
+                    if (window.__petPoseFirstRel === undefined) window.__petPoseFirstRel = null;
+                    if (window.__petPoseFirstRel === null) window.__petPoseFirstRel = { x: dx, y: dy };
+                    else if (window.__petPoseHold !== false) {
+                        const moved = Math.abs(dx - window.__petPoseFirstRel.x) + Math.abs(dy - window.__petPoseFirstRel.y);
+                        if (moved > 24) {
+                            window.__petPoseHold = false;
+                            window.__petPoseFadeStart = performance.now();
+                        }
+                    }
 
                     // 手离它多近：0 = 已经离开身体，1 = 压在它身上
                     const nx = dx / (innerWidth * 0.357);
@@ -2572,7 +2679,7 @@
 
                 // 漏检补拍：某些段落很平（长音、清唱），按当前这首歌的速度接着点
                 setInterval(() => {
-                    if (danceFreq <= 0) return;
+                    if ((window.__petDanceFreq || 0) <= 0) return;
                     if (audioEnergy < 0.02) return;
                     const now = Date.now();
                     if (now - lastBeatAt > Math.max(280, window.__beatGapMs) * 1.05) {
