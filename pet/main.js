@@ -291,6 +291,13 @@ function loadConfig() {
   if (typeof savedCfg.skin === 'string' && savedCfg.skin) currentSkin = savedCfg.skin
   if (typeof savedCfg.dance === 'number') currentDance = savedCfg.dance
   if (typeof savedCfg.name === 'string') petName = savedCfg.name
+  if (savedCfg.pose && typeof savedCfg.pose === 'object') {
+    petPose = {
+      yaw: Number(savedCfg.pose.yaw) || 0,
+      pitch: Number(savedCfg.pose.pitch) || 0,
+      roll: Number(savedCfg.pose.roll) || 0,
+    }
+  }
   if (Array.isArray(savedCfg.lineOff)) lineOff = savedCfg.lineOff.map(String)
   if (savedCfg.customLines && typeof savedCfg.customLines === 'object') {
     const next = { click: [], idle: [], pet: [], game: [] }
@@ -313,6 +320,7 @@ function saveConfig() {
     savedCfg.name = petName
     savedCfg.lineOff = lineOff
     savedCfg.customLines = customLines
+    savedCfg.pose = petPose
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(savedCfg, null, 2))
   } catch {
     // 写不进去（权限之类）就算了，不该影响桌宠运行
@@ -467,6 +475,8 @@ let currentSkin = 'classic'
 let currentDance = 0.7
 /** 用户给它取的名字；空串表示用默认标题 */
 let petName = ''
+// 初始姿势（度）：左右偏转 / 上下俯仰 / 侧倾。用户在「调整角度」里调，存本地配置
+let petPose = { yaw: 64, pitch: -16, roll: -22 }   // 用户调好并确认的初始姿态
 
 let followFx = null
 let followFy = null
@@ -867,7 +877,9 @@ function tickFollow() {
     }
   }
 
-  // 不跟随（或正被手拖着）时窗口不动，但头还是要朝着光标转
+  // 不跟随（或正被手拖着）时窗口不动。
+  // 注意：如果「跟随」和「漫游」都没开，就不要让头一直追着光标转 ——
+  // 那种状态下它应该保持固定的初始朝向（正在调姿态时尤其明显）。
   if (!FOLLOW.enabled || Date.now() < followPausedUntil) {
     if (faceChanged(rel)) {
       lastFace = rel
@@ -1084,6 +1096,55 @@ function dshOrigin() {
   }
 }
 
+
+/**
+ * 「调整初始角度」窗口：单独开一个小窗，贴在桌宠旁边（不遮挡它本体）。
+ * 滑杆改动 → 实时推给桌宠 + 存配置。
+ */
+let poseWin = null
+function openPosePanel() {
+  if (poseWin && !poseWin.isDestroyed()) {
+    try { poseWin.show(); poseWin.focus() } catch { /* 忽略 */ }
+    return
+  }
+  let x, y
+  const w = 250, h = 190
+  try {
+    const b = win.getBounds()
+    const disp = screen.getDisplayNearestPoint({ x: b.x + Math.round(b.width / 2), y: b.y + Math.round(b.height / 2) })
+    x = b.x - w - 12
+    if (x < disp.workArea.x + 8) x = b.x + b.width + 12
+    y = Math.max(disp.workArea.y + 8, Math.min(b.y, disp.workArea.y + disp.workArea.height - h - 8))
+  } catch { x = 40; y = 40 }
+  poseWin = new BrowserWindow({
+    width: w, height: h, x, y, title: '调整初始角度',
+    resizable: false, minimizable: false, maximizable: false, fullscreenable: false,
+    backgroundColor: '#141a2c', alwaysOnTop: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+  })
+  poseWin.loadFile(path.join(__dirname, 'renderer', 'pose.html'))
+  try { poseWin.setAlwaysOnTop(true, 'screen-saver') } catch { /* 忽略 */ }
+  poseWin.once('ready-to-show', () => {
+    try { poseWin.showInactive() } catch { /* 忽略 */ }
+    try { poseWin.webContents.send('pet:pose', petPose) } catch { /* 忽略 */ }
+  })
+  poseWin.on('closed', () => { poseWin = null })
+}
+
+ipcMain.on('pet:pose-set', (_e, pose) => {
+  if (!pose || typeof pose !== 'object') return
+  petPose = {
+    yaw: Math.max(-180, Math.min(180, Number(pose.yaw) || 0)),
+    pitch: Math.max(-60, Math.min(60, Number(pose.pitch) || 0)),
+    roll: Math.max(-180, Math.min(180, Number(pose.roll) || 0)),
+  }
+  sendToWin('pet:pose', petPose)
+  saveConfig()
+})
+ipcMain.on('pet:pose-close', () => {
+  if (poseWin && !poseWin.isDestroyed()) poseWin.close()
+})
+
 // ==================== 台词（内置 + 自定义） ====================
 // 内置台词写在代码里，不能被删；用户只能勾选「用不用」。
 // 自定义台词存本地配置，改版不会覆盖。
@@ -1138,6 +1199,17 @@ function pushLines() {
   sendToWin('pet:lines', linesForPet())
 }
 
+ipcMain.on('pet:save-pose', (_e, pose) => {
+  if (!pose || typeof pose !== 'object') return
+  petPose = {
+    yaw: Math.max(-180, Math.min(180, Number(pose.yaw) || 0)),
+    pitch: Math.max(-60, Math.min(60, Number(pose.pitch) || 0)),
+    roll: Math.max(-60, Math.min(60, Number(pose.roll) || 0)),
+  }
+  saveConfig()
+})
+ipcMain.on('pet:pose-want', () => sendToWin('pet:pose', petPose))
+
 ipcMain.on('pet:lines-want', () => pushLines())
 
 ipcMain.on('pet:lines-close', () => {
@@ -1156,6 +1228,7 @@ ipcMain.handle('pet:lines-save', (_e, payload) => {
     }
     saveConfig()
     pushLines()
+    sendToWin('pet:pose', petPose)
     // 编辑器也要看到最新数据
     if (linesWin && !linesWin.isDestroyed()) {
       try { linesWin.webContents.send('pet:lines-state', { defaults: DEFAULT_LINES, lineOff, custom: customLines }) } catch { /* 忽略 */ }
@@ -1506,6 +1579,7 @@ ipcMain.on('pet:menu-action', (_e, a) => {
     case 'balance': queryBalance(); break
     case 'help': openHelpPanel(); break
     case 'lines': openLinesPanel(); break
+    case 'pose': openPosePanel(); break
     case 'update': {
       // 先把 DSH 窗口叫到前面（插件页就在里面）。直接开浏览器不行：
       // DSH 的 web 要令牌，令牌只存在桌面端进程里，浏览器打开只会 401。
