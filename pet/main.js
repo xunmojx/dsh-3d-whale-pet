@@ -207,6 +207,7 @@ function updateGame(now, dt, cx, cy) {
       if (now - (GAME.lastFaceAt || 0) > 30) {
         GAME.lastFaceAt = now
         sendToWin('pet:swim', {
+          moved: cursorMoved,
           vx: ux * GAME.speed,
           vy: uy * GAME.speed,
           cx: target.x - cx,
@@ -488,6 +489,9 @@ let wiping = false
 let lastTickAt = 0
 /** 上一次推给渲染进程的光标方位（null = 还没推过），用来省掉没必要的 IPC。 */
 let lastFace = null
+/** 开场姿态：光标从启动位置移动超过 25px 才认为「用户动了」，之后才切到跟随角度。 */
+let startCursorPos = null
+let cursorMoved = false
 /** 窗口当前是否在「点击穿透」状态（穿出去 = 不吃鼠标）。 */
 let clickThrough = true
 
@@ -730,6 +734,10 @@ function tickFollow() {
   const cy = b.y + b.height / 2
   // 光标相对窗口中心的位置：既是「头朝哪儿」的依据，也是点击穿透的命中判定
   const rel = { cx: cursor.x - cx, cy: cursor.y - cy }
+  if (!cursorMoved) {
+    if (!startCursorPos) startCursorPos = { x: cursor.x, y: cursor.y }
+    else if (Math.hypot(cursor.x - startCursorPos.x, cursor.y - startCursorPos.y) > 25) cursorMoved = true
+  }
 
   // 把「光标在窗口里的坐标」丢给渲染层做光线检测（穿透时渲染层收不到鼠标事件，
   // 只能由主进程喂坐标）。约 60Hz，位置没动就跳过。
@@ -883,7 +891,7 @@ function tickFollow() {
   if (!FOLLOW.enabled || Date.now() < followPausedUntil) {
     if (faceChanged(rel)) {
       lastFace = rel
-      sendToWin('pet:swim', { vx: 0, vy: 0, cx: rel.cx, cy: rel.cy })
+      sendToWin('pet:swim', { vx: 0, vy: 0, cx: rel.cx, cy: rel.cy, moved: cursorMoved })
     }
     return
   }
