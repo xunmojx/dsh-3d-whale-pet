@@ -118,6 +118,25 @@ contextBridge.exposeInMainWorld('petBridge', {
     ipcRenderer.on('pet:thinking', (_e, on) => cb(!!on))
   },
   // 台词：内置 + 自定义
+  // 姿势（初始角度）：渲染层调好之后存到主进程的配置里
+  savePose(pose) {
+    ipcRenderer.send('pet:save-pose', pose)
+  },
+  onPose(cb) {
+    ipcRenderer.on('pet:pose', (_e, p) => cb(p))
+  },
+  poseWant() {
+    ipcRenderer.send('pet:pose-want')
+  },
+  poseSet(pose) {
+    ipcRenderer.send('pet:pose-set', pose)
+  },
+  poseClose() {
+    ipcRenderer.send('pet:pose-close')
+  },
+  onPoseEditor(cb) {
+    ipcRenderer.on('pet:pose-editor', () => cb(true))
+  },
   closeLines() {
     ipcRenderer.send('pet:lines-close')
   },
