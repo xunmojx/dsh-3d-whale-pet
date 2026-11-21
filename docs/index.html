@@ -293,7 +293,14 @@
 <h2>更新日志</h2>
         <div class="log">
             <div class="entry">
-                <div class="ver">0.7.21<span class="when">最新</span></div>
+                <div class="ver">0.7.22<span class="when">最新</span></div>
+                <ul>
+                    <li>开场姿态与跟随角度分开：启动时先摆 64/-16/-22 约 2 秒，再平滑过渡到原版跟随角度</li>
+                    <li>过渡判定改用屏幕绝对坐标，窗口自己移动不会再误触发切换</li>
+                </ul>
+            </div>
+            <div class="entry">
+                <div class="ver">0.7.21<span class="when">旧版</span></div>
                 <ul>
                     <li>初始姿态定版：左右 64°、上下 -16°、侧倾 -22°，开机就是这个角度</li>
                     <li>新增「🧭 调整初始角度」：独立小窗贴在桌宠旁边，三根滑杆实时调、自动保存</li>
