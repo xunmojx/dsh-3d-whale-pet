@@ -1327,6 +1327,23 @@ let updateInfo = null          // { version, page, url } 或 null
 let lastCheckAt = 0            // 上次检查的时间（节流用）
 
 /** 插件自身的版本号（读插件根目录的 package.json，不是 pet 的）。 */
+/**
+ * 这个插件是怎么装进来的：
+ *  - 'tgz'  → 依赖写法是一条 http(s) 链接（直连安装）
+ *  - 'npm'  → 依赖写法是版本号/范围（从 registry 装）
+ * 用在「去更新」上：两种装法的更新动作不一样。
+ */
+function installMode() {
+  try {
+    // __dirname = <profile>/node_modules/dsh-3d-whale-pet/pet
+    const profileDir = path.join(__dirname, '..', '..', '..')
+    const pkg = JSON.parse(fs.readFileSync(path.join(profileDir, 'package.json'), 'utf8'))
+    const spec = String((pkg.dependencies && pkg.dependencies['dsh-3d-whale-pet']) || '')
+    if (/^https?:|^file:|\.tgz/i.test(spec)) return { mode: 'tgz', spec }
+    return { mode: 'npm', spec }
+  } catch { return { mode: 'npm', spec: '' } }
+}
+
 function pluginVersion() {
   try {
     const pkgPath = path.join(__dirname, '..', 'package.json')
@@ -1503,8 +1520,19 @@ ipcMain.on('pet:clear-local-data', async () => {
     //    交给一个独立的 node 进程，等 2 秒（本进程退出后）再删。
     //    注意：不能用 cmd + timeout/ping 延时——detached 里没有控制台，
     //    timeout 会直接失败，后面的命令就不执行了（实测 rmdir 根本没跑）。
-    const rt = path.join(process.env.APPDATA || path.join(require('node:os').homedir(), 'AppData', 'Roaming'),
-                         'whale-pet-app', 'runtime')
+    // 运行时可能在用户自定义的位置（location.json 里记着），默认位置也要一起清，
+    // 否则「删除本地数据」之后 D 盘那份 180MB 会一直留着、还删不掉。
+    const appDataBase = process.env.APPDATA || path.join(require('node:os').homedir(), 'AppData', 'Roaming')
+    const locations = []
+    try {
+      const cfg = JSON.parse(fs.readFileSync(path.join(appDataBase, 'whale-pet-app', 'location.json'), 'utf8'))
+      if (cfg && typeof cfg.runtimeDir === 'string' && cfg.runtimeDir.trim()) locations.push(cfg.runtimeDir.trim())
+    } catch { /* 没配过 */ }
+    locations.push(path.join(appDataBase, 'whale-pet-app', 'runtime'))
+    // location.json 本身也删掉，免得下次启动还指着一个空目录
+    try { fs.unlinkSync(path.join(appDataBase, 'whale-pet-app', 'location.json')) } catch { /* 没有就算了 */ }
+
+    for (const rt of locations) {
     if (fs.existsSync(rt)) {
       try {
         const home = process.env.USERPROFILE || require('node:os').homedir()
@@ -1523,6 +1551,7 @@ ipcMain.on('pet:clear-local-data', async () => {
       } catch (e) {
         console.error('[wipe] 启动删除进程失败: ' + (e && e.message))
       }
+    }
     }
     result.ok = true
   } catch (err) {
@@ -1591,12 +1620,18 @@ ipcMain.on('pet:menu-action', (_e, a) => {
     case 'update': {
       // 先把 DSH 窗口叫到前面（插件页就在里面）。直接开浏览器不行：
       // DSH 的 web 要令牌，令牌只存在桌面端进程里，浏览器打开只会 401。
-      // 顺手把「直连 tgz」写进剪贴板：国内 npm 镜像常常滞后，
-      // 用户在插件面板里搜包名可能装到旧版，直连链接一定能拿到新版
-      try { clipboard.writeText(UPDATE_TGZ) } catch { /* 剪贴板不可用就算 */ }
+      // 更新动作按「这个插件是怎么装的」分开：
+      //  直连 tgz 装的 → 复制那条直连链接（插件页认不出新版，只能重装）
+      //  包名装的     → 复制 @latest 规格，插件页里直接粘贴/点更新都行
+      const info = installMode()
+      const payload = info.mode === 'tgz' ? UPDATE_TGZ : 'dsh-3d-whale-pet@latest'
+      try { clipboard.writeText(payload) } catch { /* 剪贴板不可用就算 */ }
       bringDshToFront().then((ok) => {
         if (ok) {
-          sendToWin('pet:say', { text: '已复制直连链接，去「插件」页粘贴安装', ms: 5000 })
+          const tip = info.mode === 'tgz'
+            ? '已复制直连链接，去「插件」页粘贴安装'
+            : '已复制 dsh-3d-whale-pet@latest，去「插件」页更新'
+          sendToWin('pet:say', { text: tip, ms: 5200 })
           return
         }
         // 切窗口失败：退而打开链接，并明确说一句，别让用户以为点了没反应
