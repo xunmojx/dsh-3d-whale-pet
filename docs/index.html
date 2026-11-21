@@ -285,10 +285,24 @@
     </section>
 
     <section>
-        <h2>更新日志</h2>
+        <section>
+        <h2>装在哪 / 换盘</h2>
+        <p>桌宠本体约 180 MB，默认在 <code>%APPDATA%\whale-pet-app\runtime</code>（C 盘）。想换到 D 盘：关闭桌宠 → 插件面板里点「安装位置」后面的<b>「更改」</b> → 填一个空目录 → 保存，会自动搬过去并记住。输入框留空保存即恢复默认。</p>
+    </section>
+
+<h2>更新日志</h2>
         <div class="log">
             <div class="entry">
-                <div class="ver">0.7.20<span class="when">最新</span></div>
+                <div class="ver">0.7.21<span class="when">最新</span></div>
+                <ul>
+                    <li>初始姿态定版：左右 64°、上下 -16°、侧倾 -22°，开机就是这个角度</li>
+                    <li>新增「🧭 调整初始角度」：独立小窗贴在桌宠旁边，三根滑杆实时调、自动保存</li>
+                    <li>侧倾改成真正绕「嘴→尾」轴翻滚（之前和俯仰混在一起）</li>
+                    <li>修复了几处会导致渲染循环中断的变量引用错误</li>
+                </ul>
+            </div>
+            <div class="entry">
+                <div class="ver">0.7.20<span class="when">旧版</span></div>
                 <ul>
                     <li>桌宠本体的安装位置可以改了：插件面板里点「更改位置」，挪到 D 盘等任意目录，自动搬移并记住</li>
                     <li>点「去更新」时会把直连安装链接复制到剪贴板，绕开国内镜像滞后，一定装到最新版</li>
