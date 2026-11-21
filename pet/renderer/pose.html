@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>调整初始角度</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, "Microsoft YaHei", sans-serif; background: #141a2c; color: #dfe6ff; font-size: 13px; }
+  header { padding: 9px 12px; border-bottom: 1px solid rgba(255,255,255,.08); display: flex; align-items: center; gap: 8px; }
+  header b { flex: 1; font-size: 13px; }
+  header button { border: 0; background: none; color: #9db0ff; cursor: pointer; font-size: 14px; }
+  main { padding: 10px 12px 12px; }
+  .row { margin: 8px 0; }
+  .row label { display: flex; justify-content: space-between; margin-bottom: 3px; opacity: .85; }
+  .row input[type=range] { width: 100%; accent-color: #4d6bfe; }
+  .hint { margin-top: 8px; font-size: 11px; opacity: .55; line-height: 1.4; }
+</style>
+</head>
+<body>
+<header>
+  <b>🧭 调整初始角度</b>
+  <button id="close">✕</button>
+</header>
+<main>
+  <div class="row"><label>左右偏转 <span id="v-yaw">60</span>°</label><input id="s-yaw" type="range" min="-180" max="180" step="1" value="60"></div>
+  <div class="row"><label>上下俯仰 <span id="v-pitch">0</span>°</label><input id="s-pitch" type="range" min="-40" max="40" step="1" value="0"></div>
+  <div class="row"><label>侧倾 <span id="v-roll">0</span>°</label><input id="s-roll" type="range" min="-180" max="180" step="1" value="0"></div>
+  <div class="hint">拖一下就能看到变化，松手自动保存，下次启动还是这个角度。</div>
+</main>
+<script>
+  // 姿势接口挂在 petBridge 上，窗口接口在 petWindow 上，两个都合并进来
+  const api = Object.assign({}, window.petWindow || {}, window.petBridge || {});
+  const pose = { yaw: 60, pitch: 0, roll: 0 };
+  const ids = ['yaw', 'pitch', 'roll'];
+  const s = (k) => document.getElementById('s-' + k);
+  const v = (k) => document.getElementById('v-' + k);
+
+  function push() {
+    if (api.poseSet) api.poseSet(pose);
+  }
+  function syncInputs() {
+    for (const k of ids) { s(k).value = pose[k]; v(k).textContent = pose[k]; }
+  }
+  for (const k of ids) {
+    s(k).addEventListener('input', () => {
+      pose[k] = Number(s(k).value) || 0;
+      v(k).textContent = pose[k];
+      push();
+    });
+  }
+  document.getElementById('close').addEventListener('click', () => { if (api.poseClose) api.poseClose(); else window.close(); });
+
+  if (api.onPose) api.onPose((p) => {
+    if (!p) return;
+    pose.yaw = Number(p.yaw) || 0;
+    pose.pitch = Number(p.pitch) || 0;
+    pose.roll = Number(p.roll) || 0;
+    syncInputs();
+  });
+  if (api.poseWant) api.poseWant();
+</script>
+</body>
+</html>
