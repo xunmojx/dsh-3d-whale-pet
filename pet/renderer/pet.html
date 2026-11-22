@@ -1297,9 +1297,10 @@
                 // —— 身体：roll(z) + yaw(y) + pitch(x)，yaw 叠加转圈 + 音乐小幅偏移 ——
                 // 姿态混合系数：1 = 开场姿态（64/-16/-22），0 = 跟随用的原始角度。
                 // 启动后保持 1；鼠标真正移动过（onSwim 里判定）才开始 0.8 秒渐变到 0。
-                // 开场姿态 → 跟随角度：先保证亮相 2 秒；鼠标动过、且过了这 2 秒才渐变（1.2 秒）
-                if (window.__petPoseWanted && window.__petPoseHold !== false
-                    && performance.now() > (window.__petPoseHoldUntil || 0)) {
+                // 开场姿态 → 跟随角度：亮相 2 秒后**无条件**渐变回正常角度。
+                // 之前要求「鼠标动过」才切，结果用户不动鼠标（比如让它自己漫游）时，
+                // 它会一直保持开场那个偏角 —— 漫游姿态看起来就跟初始姿态一样了。
+                if (window.__petPoseHold !== false && performance.now() > (window.__petPoseHoldUntil || 0)) {
                     window.__petPoseHold = false;
                     window.__petPoseFadeStart = performance.now();
                 }
