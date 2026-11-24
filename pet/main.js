@@ -4,6 +4,27 @@
 //   2. 作为 harness gateway 的第二客户端：订阅事件流、派活、驱动情绪状态机
 const { app, BrowserWindow, ipcMain, Menu, screen, nativeImage, shell, clipboard, dialog, desktopCapturer } = require('electron')
 const path = require('node:path')
+;
+// 依赖（ws）不在插件目录里，而是装在运行时目录：之前是靠 pet/node_modules 这个
+// junction 指过去，但那条链接会让 pnpm 卸载插件时顺着它往里走——删不掉，甚至误删运行时。
+// 现在改成在 require 之前把运行时目录加进模块搜索路径，插件目录里不再需要任何 node_modules。
+(function addRuntimeModulesPath() {
+  try {
+    const fs2 = require('node:fs')
+    const path2 = require('node:path')
+    const base = process.env.APPDATA || path2.join(require('node:os').homedir(), 'AppData', 'Roaming')
+    let dir = process.env.WHALE_PET_RUNTIME || ''
+    if (!dir) {
+      try {
+        const cfg = JSON.parse(fs2.readFileSync(path2.join(base, 'whale-pet-app', 'location.json'), 'utf8'))
+        if (cfg && typeof cfg.runtimeDir === 'string' && cfg.runtimeDir.trim()) dir = cfg.runtimeDir.trim()
+      } catch { /* 没配过就用默认位置 */ }
+    }
+    if (!dir) dir = path2.join(base, 'whale-pet-app', 'runtime')
+    const nm = path2.join(dir, 'node_modules')
+    if (fs2.existsSync(nm)) module.paths.push(nm)
+  } catch { /* 解析不到就按原样跑 */ }
+})()
 const { Gateway, fetchBalance, resolveGatewayUrl } = require('./gateway.js')
 
 const WINDOW_WIDTH = 420
