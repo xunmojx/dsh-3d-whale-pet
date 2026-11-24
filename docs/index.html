@@ -293,7 +293,16 @@
 <h2>更新日志</h2>
         <div class="log">
             <div class="entry">
-                <div class="ver">0.7.26<span class="when">最新</span></div>
+                <div class="ver">0.7.27<span class="when">最新</span></div>
+                <ul>
+                    <li>修复新版 DSH 下面板一直报 HTTP 400：读 ctx.root 会抛异常，改成只用注入的 connection</li>
+                    <li>路由显式声明 auth: anonymous（新版 DSH 默认要求认证）</li>
+                    <li>请求体改为事件式读取，兼容新版准入层</li>
+                    <li>插件不再在 pet/node_modules 建目录链接：依赖改从运行时目录解析，卸载不会再卡住或误删运行时</li>
+                </ul>
+            </div>
+            <div class="entry">
+                <div class="ver">0.7.26<span class="when">旧版</span></div>
                 <ul>
                     <li>修：插件更新后依赖链接会丢，面板误判「依赖未装」；现在点「安装依赖」会先检查本地，有运行时只重新接链接，不再重复下载 180MB</li>
                 </ul>
